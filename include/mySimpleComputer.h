@@ -1,5 +1,4 @@
 #ifndef MYSIMPLECOMPUTER_H
 #define MYSIMPLECOMPUTER_H
 
-
 #endif
