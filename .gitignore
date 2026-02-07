@@ -1,0 +1,8 @@
+*.o
+*.a
+*.so
+console/test
+
+.vscode/
+.idea/
+.DS_Store
