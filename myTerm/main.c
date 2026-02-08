@@ -1,1 +1,6 @@
-int main(void) { return 0; }
+#include <stdio.h>
+
+int main(void) {
+  puts("Hello World");
+  return 0;
+}
