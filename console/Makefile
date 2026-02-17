@@ -1,18 +1,26 @@
-CC      := gcc
-CFLAGS  := -std=c11 -Wall -Wextra -Wpedantic -O2
+CC = gcc
+CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -I../include
 
-TARGET  := test
-OBJS    := test.o
+TARGET = pr01
+SRCS = pr01.c
+OBJS = $(SRCS:.c=.o)
 
-.PHONY: all clean
+LIBDIR = ../mySimpleComputer
+LIB = $(LIBDIR)/libmySimpleComputer.a
 
 all: $(TARGET)
 
-$(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $(OBJS)
+$(TARGET): $(OBJS) $(LIB)
+	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LIB)
 
-test.o: test.c
-	$(CC) $(CFLAGS) -c test.c -o test.o
+$(LIB):
+	$(MAKE) -C $(LIBDIR)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
 	rm -f $(TARGET) $(OBJS)
+	$(MAKE) -C $(LIBDIR) clean
+
+.PHONY: all clean
