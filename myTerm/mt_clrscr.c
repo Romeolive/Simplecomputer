@@ -5,7 +5,7 @@
 #include <stdio.h>
 
 static int
-write_str(const char *s)
+write_str (const char *s)
 {
   size_t len = 0;
 
@@ -19,7 +19,7 @@ write_str(const char *s)
       len++;
     }
 
-  if (write(STDOUT_FILENO, s, len) < 0)
+  if (write (STDOUT_FILENO, s, len) < 0)
     {
       return -1;
     }
@@ -28,10 +28,10 @@ write_str(const char *s)
 }
 
 int
-mt_clrscr(void)
+mt_clrscr (void)
 {
   /* clear screen + cursor home */
-  if (write_str("\033[H\033[2J") != 0)
+  if (write_str ("\033[H\033[2J") != 0)
     {
       return -1;
     }
@@ -39,7 +39,7 @@ mt_clrscr(void)
 }
 
 int
-mt_gotoXY(int row, int col)
+mt_gotoXY (int row, int col)
 {
   char buf[32];
   int n;
@@ -49,17 +49,17 @@ mt_gotoXY(int row, int col)
       return -1;
     }
 
-  n = snprintf(buf, sizeof(buf), "\033[%d;%dH", row, col);
-  if (n <= 0 || n >= (int) sizeof(buf))
+  n = snprintf (buf, sizeof (buf), "\033[%d;%dH", row, col);
+  if (n <= 0 || n >= (int)sizeof (buf))
     {
       return -1;
     }
 
-  return write_str(buf);
+  return write_str (buf);
 }
 
 int
-mt_getscreensize(int *rows, int *cols)
+mt_getscreensize (int *rows, int *cols)
 {
   struct winsize ws;
 
@@ -68,7 +68,7 @@ mt_getscreensize(int *rows, int *cols)
       return -1;
     }
 
-  if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) < 0)
+  if (ioctl (STDOUT_FILENO, TIOCGWINSZ, &ws) < 0)
     {
       return -1;
     }
@@ -78,14 +78,14 @@ mt_getscreensize(int *rows, int *cols)
       return -1;
     }
 
-  *rows = (int) ws.ws_row;
-  *cols = (int) ws.ws_col;
+  *rows = (int)ws.ws_row;
+  *cols = (int)ws.ws_col;
 
   return 0;
 }
 
 int
-mt_setfgcolor(enum colors color)
+mt_setfgcolor (enum colors color)
 {
   char buf[16];
   int n;
@@ -95,17 +95,17 @@ mt_setfgcolor(enum colors color)
       return -1;
     }
 
-  n = snprintf(buf, sizeof(buf), "\033[3%dm", (int) color);
-  if (n <= 0 || n >= (int) sizeof(buf))
+  n = snprintf (buf, sizeof (buf), "\033[3%dm", (int)color);
+  if (n <= 0 || n >= (int)sizeof (buf))
     {
       return -1;
     }
 
-  return write_str(buf);
+  return write_str (buf);
 }
 
 int
-mt_setbgcolor(enum colors color)
+mt_setbgcolor (enum colors color)
 {
   char buf[16];
   int n;
@@ -115,34 +115,34 @@ mt_setbgcolor(enum colors color)
       return -1;
     }
 
-  n = snprintf(buf, sizeof(buf), "\033[4%dm", (int) color);
-  if (n <= 0 || n >= (int) sizeof(buf))
+  n = snprintf (buf, sizeof (buf), "\033[4%dm", (int)color);
+  if (n <= 0 || n >= (int)sizeof (buf))
     {
       return -1;
     }
 
-  return write_str(buf);
+  return write_str (buf);
 }
 
 int
-mt_setdefaultcolor(void)
+mt_setdefaultcolor (void)
 {
-  return write_str("\033[0m");
+  return write_str ("\033[0m");
 }
 
 int
-mt_setcursorvisible(int value)
+mt_setcursorvisible (int value)
 {
   if (value)
     {
-      return write_str("\033[?25h");
+      return write_str ("\033[?25h");
     }
-  return write_str("\033[?25l");
+  return write_str ("\033[?25l");
 }
 
 int
-mt_delline(void)
+mt_delline (void)
 {
   /* delete/clear current line */
-  return write_str("\033[2K");
+  return write_str ("\033[2K");
 }

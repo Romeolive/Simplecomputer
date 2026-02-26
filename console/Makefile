@@ -3,9 +3,11 @@ CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -I../include
 
 LIBSC_DIR = ../mySimpleComputer
 LIBTERM_DIR = ../myTerm
+LIBBIG_DIR = ../myBigChars
 
 LIBSC = $(LIBSC_DIR)/libmySimpleComputer.a
 LIBTERM = $(LIBTERM_DIR)/libmyTerm.a
+LIBBIG = $(LIBBIG_DIR)/libmyBigChars.a
 
 PR01 = pr01
 CONSOLE = console
@@ -21,14 +23,17 @@ all: $(PR01) $(CONSOLE)
 $(PR01): $(PR01_OBJS) $(LIBSC) $(LIBTERM)
 	$(CC) $(CFLAGS) -o $@ $(PR01_OBJS) $(LIBSC) $(LIBTERM)
 
-$(CONSOLE): $(CONSOLE_OBJS) $(LIBSC) $(LIBTERM)
-	$(CC) $(CFLAGS) -o $@ $(CONSOLE_OBJS) $(LIBSC) $(LIBTERM)
+$(CONSOLE): $(CONSOLE_OBJS) $(LIBSC) $(LIBTERM) $(LIBBIG)
+	$(CC) $(CFLAGS) -o $@ $(CONSOLE_OBJS) $(LIBSC) $(LIBTERM) $(LIBBIG)
 
 $(LIBSC):
 	$(MAKE) -C $(LIBSC_DIR)
 
 $(LIBTERM):
 	$(MAKE) -C $(LIBTERM_DIR)
+
+$(LIBBIG):
+	$(MAKE) -C $(LIBBIG_DIR)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -37,5 +42,6 @@ clean:
 	rm -f $(PR01) $(CONSOLE) *.o
 	$(MAKE) -C $(LIBSC_DIR) clean
 	$(MAKE) -C $(LIBTERM_DIR) clean
+	$(MAKE) -C $(LIBBIG_DIR) clean
 
 .PHONY: all clean
