@@ -1,53 +1,67 @@
 #include <stdio.h>
+#include <string.h>
 
 #include "myBigChars.h"
 #include "myTerm.h"
 
+
+#define U_TL "┌"
+#define U_TR "┐"
+#define U_BL "└"
+#define U_BR "┘"
+#define U_H  "─"
+#define U_V  "│"
+
 static void
-cell (int row, int col, char c)
+cell_str(int row, int col, const char *s)
 {
-  mt_gotoXY (row, col);
-  putchar (c);
+  mt_gotoXY(row, col);
+  fputs(s, stdout);
 }
 
 int
-bc_box (int top, int left, int height, int width)
+bc_box(int top, int left, int height, int width)
 {
   if (height < 2 || width < 2)
     return -1;
 
   /* top */
-  cell (top, left, '+');
+  cell_str(top, left, U_TL);
   for (int i = 1; i < width - 1; i++)
-    cell (top, left + i, '-');
-  cell (top, left + width - 1, '+');
+    cell_str(top, left + i, U_H);
+  cell_str(top, left + width - 1, U_TR);
 
   /* sides */
   for (int r = 1; r < height - 1; r++)
     {
-      cell (top + r, left, '|');
-      cell (top + r, left + width - 1, '|');
+      cell_str(top + r, left, U_V);
+      cell_str(top + r, left + width - 1, U_V);
     }
 
   /* bottom */
-  cell (top + height - 1, left, '+');
+  cell_str(top + height - 1, left, U_BL);
   for (int i = 1; i < width - 1; i++)
-    cell (top + height - 1, left + i, '-');
-  cell (top + height - 1, left + width - 1, '+');
+    cell_str(top + height - 1, left + i, U_H);
+  cell_str(top + height - 1, left + width - 1, U_BR);
 
   return 0;
 }
 
-/* 8x8 шаблоны. Символы рисуем символом '█' (можно заменить на '#') */
+/* BigChar: можно оставить как у тебя, но я сделаю заливку более "скриншотной" */
+#define FILL "▒" /* можно заменить на "░" или "▓" */
+
 static void
-draw8 (const char pattern[8][9], int row, int col)
+draw8(const char pattern[8][9], int row, int col)
 {
   for (int r = 0; r < 8; r++)
     {
-      mt_gotoXY (row + r, col);
+      mt_gotoXY(row + r, col);
       for (int c = 0; c < 8; c++)
         {
-          putchar (pattern[r][c] == '1' ? '#' : ' ');
+          if (pattern[r][c] == '1')
+            fputs(FILL, stdout);
+          else
+            putchar(' ');
         }
     }
 }
@@ -143,65 +157,40 @@ static const char P_F[8][9] = {
   "01111100", "01100000", "01100000", "01100000",
 };
 
-static const char (*pick (char ch))[9]
+static const char (*pick(char ch))[9]
 {
   switch (ch)
     {
-    case '+':
-      return P_PLUS;
-    case '-':
-      return P_MINUS;
-    case '0':
-      return P_0;
-    case '1':
-      return P_1;
-    case '2':
-      return P_2;
-    case '3':
-      return P_3;
-    case '4':
-      return P_4;
-    case '5':
-      return P_5;
-    case '6':
-      return P_6;
-    case '7':
-      return P_7;
-    case '8':
-      return P_8;
-    case '9':
-      return P_9;
-    case 'A':
-    case 'a':
-      return P_A;
-    case 'B':
-    case 'b':
-      return P_B;
-    case 'C':
-    case 'c':
-      return P_C;
-    case 'D':
-    case 'd':
-      return P_D;
-    case 'E':
-    case 'e':
-      return P_E;
-    case 'F':
-    case 'f':
-      return P_F;
-    default:
-      return P_0; /* fallback */
+    case '+': return P_PLUS;
+    case '-': return P_MINUS;
+    case '0': return P_0;
+    case '1': return P_1;
+    case '2': return P_2;
+    case '3': return P_3;
+    case '4': return P_4;
+    case '5': return P_5;
+    case '6': return P_6;
+    case '7': return P_7;
+    case '8': return P_8;
+    case '9': return P_9;
+    case 'A': case 'a': return P_A;
+    case 'B': case 'b': return P_B;
+    case 'C': case 'c': return P_C;
+    case 'D': case 'd': return P_D;
+    case 'E': case 'e': return P_E;
+    case 'F': case 'f': return P_F;
+    default: return P_0;
     }
 }
 
 int
-bc_printbigchar (char ch, int row, int col, enum colors fg, enum colors bg)
+bc_printbigchar(char ch, int row, int col, enum colors fg, enum colors bg)
 {
-  mt_setfgcolor (fg);
-  mt_setbgcolor (bg);
+  mt_setfgcolor(fg);
+  mt_setbgcolor(bg);
 
-  draw8 (pick (ch), row, col);
+  draw8(pick(ch), row, col);
 
-  mt_setdefaultcolor ();
+  mt_setdefaultcolor();
   return 0;
 }
