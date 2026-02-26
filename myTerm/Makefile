@@ -1,12 +1,21 @@
 CC = gcc
-CFLAGS = -std=c11 -Wall -Wextra -Wpedantic
-TARGET = main
-SRCS = $(wildcard *.c)
+AR = ar
+CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -I../include
 
-all:
-	$(CC) $(CFLAGS) $(SRCS) -o $(TARGET)
+LIB = libmyTerm.a
+
+SRCS = mt_clrscr.c
+OBJS = $(SRCS:.c=.o)
+
+all: $(LIB)
+
+$(LIB): $(OBJS)
+	$(AR) rcs $(LIB) $(OBJS)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(OBJS) $(LIB)
 
 .PHONY: all clean

@@ -259,27 +259,32 @@ print_binary15 (int value)
 }
 
 void
-printCell (int address)
+printCell (int address, enum colors fg, enum colors bg)
 {
   int value;
   int sign;
   int cmd;
   int op;
 
+  mt_setfgcolor (fg);
+  mt_setbgcolor (bg);
+
   if (sc_memoryGet (address, &value) != 0)
     {
       printf ("????? ");
+      mt_setdefaultcolor ();
       return;
     }
 
   if (sc_commandDecode (value, &sign, &cmd, &op) == 0)
     {
       printf ("%c%02X%02X ", sign ? '-' : '+', cmd, op);
+      mt_setdefaultcolor ();
+      return;
     }
-  else
-    {
-      printf ("%04X ", value & 0xFFFF);
-    }
+
+  printf ("%04X ", value & 0xFFFF);
+  mt_setdefaultcolor ();
 }
 
 void
@@ -290,7 +295,6 @@ printFlags (void)
   putchar ((reg_flags & SC_FLAG_OUTMEM) ? 'M' : '_');
   putchar ((reg_flags & SC_FLAG_BADCOMMAND) ? 'C' : '_');
   putchar ((reg_flags & SC_FLAG_IGNORECLOCK) ? 'I' : '_');
-  putchar ('\n');
 }
 
 void
@@ -307,11 +311,51 @@ printDecodedCommand (int value)
 void
 printAccumulator (void)
 {
-  printf ("ACC: %d\n", reg_accumulator);
+  printf ("+%04X", reg_accumulator & 0x7FFF);
 }
 
 void
 printCounters (void)
 {
-  printf ("IC: %d\n", reg_icounter);
+  printf ("%02d", reg_icounter);
+}
+
+void
+printTerm (int address, int input)
+{
+  int value;
+
+  if (sc_memoryGet (address, &value) != 0)
+    {
+      printf ("%c %02d = ????", input ? '>' : ' ', address);
+      return;
+    }
+
+  printf ("%c %02d = ", input ? '>' : ' ', address);
+  printf ("%c%02X%02X", ((value >> 14) & 1) ? '-' : '+', (value >> 7) & 0x7F,
+          value & 0x7F);
+}
+
+void
+printOperation (void)
+{
+  int ic;
+  int value;
+  int sign;
+  int cmd;
+  int op;
+
+  if (sc_icounterGet (&ic) != 0 || sc_memoryGet (ic, &value) != 0)
+    {
+      putchar ('!');
+      return;
+    }
+
+  if (sc_commandDecode (value, &sign, &cmd, &op) != 0)
+    {
+      putchar ('!');
+      return;
+    }
+
+  printf ("%c%02X:%02X", sign ? '-' : '+', cmd, op);
 }
