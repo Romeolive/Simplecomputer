@@ -10,15 +10,23 @@
 #include "myBigChars.h"
 #include "mySimpleComputer.h"
 #include "myTerm.h"
+#include "myReadKey.h"
 
 /* Требования по размеру */
-#define MIN_ROWS 29
+#define MIN_ROWS 30
 #define MIN_COLS 100
+
+/* Память: 128 ячеек = 12 полных строк (по 10) + 1 строка (8) */
+#define MEM_CELLS_TOTAL SC_MEMORY_SIZE
+#define MEM_COLS_PER_ROW 10
+#define MEM_FULL_ROWS 12
+#define MEM_LAST_ROW_CELLS 8
+#define MEM_ROWS_TOTAL 13
 
 /* Координаты по рисунку */
 #define MEM_TOP 1
 #define MEM_LEFT 1
-#define MEM_H 12
+#define MEM_H (MEM_ROWS_TOTAL + 2) /* верх + низ рамки + строки памяти */
 #define MEM_W 63
 
 #define ACC_TOP 1
@@ -43,36 +51,39 @@
 
 #define BIG_TOP 7
 #define BIG_LEFT 64
-#define BIG_H 12            /* было 8 — надо 10, чтобы внутри было 8 строк */
+#define BIG_H 12
 #define BIG_W 47
 
-#define FMT_TOP 17          /* было 15 */
+/* Формат под памятью */
+#define FMT_TOP (MEM_TOP + MEM_H)
 #define FMT_LEFT 1
 #define FMT_H 3
 #define FMT_W 62
 
-#define CACHE_TOP 20        /* было 18 */
+/* Нижние блоки */
+#define CACHE_TOP (FMT_TOP + FMT_H)
 #define CACHE_LEFT 1
 #define CACHE_H 7
 #define CACHE_W 62
 
-#define INOUT_TOP 20        /* было 18 */
+#define INOUT_TOP (FMT_TOP + FMT_H)
 #define INOUT_LEFT 64
 #define INOUT_H 7
 #define INOUT_W 14
 
-#define KEYS_TOP 20         /* было 18 */
+#define KEYS_TOP (FMT_TOP + FMT_H)
 #define KEYS_LEFT 79
 #define KEYS_H 7
 #define KEYS_W 32
 
-#define INPUT_TOP 28        /* было 26 */
+#define INPUT_TOP (CACHE_TOP + CACHE_H + 1)
 #define INPUT_LEFT 1
 
 static int
 term_width_utf8(const char *s)
 {
-  if (!s) return 0;
+  if (!s)
+    return 0;
 
   mbstate_t st;
   memset(&st, 0, sizeof(st));
@@ -95,9 +106,10 @@ term_width_utf8(const char *s)
         break;
 
       int cw = wcwidth(wc);
-      if (cw < 0) cw = 1;
+      if (cw < 0)
+        cw = 1;
       w += cw;
-      p += n;
+      p += (int)n;
     }
 
   return w;
@@ -110,10 +122,10 @@ title_center(int top, int left, int width, const char *title, enum colors color)
   const int inner_l = left + 1;
   const int inner_r = left + width - 2;
 
-  /* верхняя линия полностью */
+  /* верхняя линия полностью (простые ASCII, чтобы не ломалось в терминалах) */
   mt_gotoXY(top, inner_l);
   for (int i = 0; i < (width - 2); i++)
-    fputs("─", stdout);
+    putchar('-');
 
   int tw = term_width_utf8(title);
   int total = tw + 2; /* пробелы вокруг */
@@ -122,8 +134,10 @@ title_center(int top, int left, int width, const char *title, enum colors color)
     return;
 
   int start = left + (width - total) / 2;
-  if (start < inner_l) start = inner_l;
-  if (start + total - 1 > inner_r) start = inner_r - total + 1;
+  if (start < inner_l)
+    start = inner_l;
+  if (start + total - 1 > inner_r)
+    start = inner_r - total + 1;
 
   mt_setfgcolor(color);
   mt_gotoXY(top, start);
@@ -151,13 +165,22 @@ draw_memory(int selected)
   bc_box(MEM_TOP, MEM_LEFT, MEM_H, MEM_W);
   title_center(MEM_TOP, MEM_LEFT, MEM_W, "Оперативная память", COLOR_RED);
 
-  int start_row = MEM_TOP + 1;
-  int start_col = MEM_LEFT + 2;
+  const int start_row = MEM_TOP + 1;
+  const int start_col = MEM_LEFT + 2;
 
-  for (int i = 0; i < 100; i++)
+  for (int i = 0; i < MEM_CELLS_TOTAL; i++)
     {
-      int r = start_row + (i / 10);
-      int c = start_col + (i % 10) * 6;
+      /* 0..119 -> 12 строк по 10
+         120..127 -> 13-я строка 8 значений */
+      int row = i / MEM_COLS_PER_ROW;     /* 0..12 */
+      int col = i % MEM_COLS_PER_ROW;     /* 0..9 */
+
+      /* Для последней строки печатаем только 8 ячеек */
+      if (row == MEM_FULL_ROWS && col >= MEM_LAST_ROW_CELLS)
+        continue;
+
+      int r = start_row + row;
+      int c = start_col + col * 6;
 
       mt_gotoXY(r, c);
       if (i == selected)
@@ -165,6 +188,21 @@ draw_memory(int selected)
       else
         printCell(i, COLOR_WHITE, COLOR_BLACK);
     }
+
+  /* Для аккуратности: подчистить "хвост" в последней строке после 8-й ячейки */
+  {
+    int tail_row = start_row + MEM_FULL_ROWS;
+    int tail_col = start_col + MEM_LAST_ROW_CELLS * 6;
+    int inner_right = MEM_LEFT + MEM_W - 2;
+    int to_clear = inner_right - tail_col + 1;
+
+    if (to_clear > 0)
+      {
+        mt_gotoXY(tail_row, tail_col);
+        for (int k = 0; k < to_clear; k++)
+          putchar(' ');
+      }
+  }
 }
 
 static void
@@ -223,7 +261,8 @@ static void
 draw_bigcell(int addr)
 {
   bc_box(BIG_TOP, BIG_LEFT, BIG_H, BIG_W);
-  title_center(BIG_TOP, BIG_LEFT, BIG_W, "Редактируемая ячейка (увеличенно)", COLOR_RED);
+  title_center(BIG_TOP, BIG_LEFT, BIG_W, "Редактируемая ячейка (увеличенно)",
+               COLOR_RED);
 
   int value = 0;
   sc_memoryGet(addr, &value);
@@ -232,18 +271,19 @@ draw_bigcell(int addr)
   buf[0] = (((value >> 14) & 1) ? '-' : '+');
   snprintf(buf + 1, sizeof(buf) - 1, "%04X", value & 0x3FFF);
 
-  const int big_row = BIG_TOP + 1;      /* рисуем сразу со 2-й строки внутри рамки */
-  const int big_col = BIG_LEFT + 2;     /* строго внутри рамки */
+  const int big_row = BIG_TOP + 2;
+  const int big_col = BIG_LEFT + 2;
   const int glyph_w = 8;
   const int glyph_gap = 1;
   const int step = glyph_w + glyph_gap;
 
   for (int i = 0; i < 5; i++)
     {
-      bc_printbigchar(buf[i], big_row + 1, big_col + i * step, COLOR_WHITE, COLOR_BLACK);
+      bc_printbigchar(buf[i], big_row, big_col + i * step,
+                      COLOR_WHITE, COLOR_BLACK);
     }
 
-  /* подпись на последней внутренней строке */
+  /* подпись внутри рамки */
   mt_setfgcolor(COLOR_BLUE);
   mt_gotoXY(BIG_TOP + BIG_H - 2, BIG_LEFT + 2);
   printf("Номер редактируемой ячейки: %03d", addr);
@@ -254,13 +294,15 @@ static void
 draw_format(int addr)
 {
   bc_box(FMT_TOP, FMT_LEFT, FMT_H, FMT_W);
-  title_center(FMT_TOP, FMT_LEFT, FMT_W, "Редактируемая ячейка (формат)", COLOR_RED);
+  title_center(FMT_TOP, FMT_LEFT, FMT_W, "Редактируемая ячейка (формат)",
+               COLOR_RED);
 
   int value = 0;
   sc_memoryGet(addr, &value);
 
   mt_gotoXY(FMT_TOP + 1, FMT_LEFT + 2);
-  printf("dec: %05d | oct: %05o | hex: %04X | bin: ", value, value, value & 0xFFFF);
+  printf("dec: %05d | oct: %05o | hex: %04X | bin: ",
+         value, value, value & 0xFFFF);
 
   for (int i = 14; i >= 0; i--)
     putchar(((value >> i) & 1) ? '1' : '0');
@@ -272,7 +314,7 @@ draw_cache(void)
   bc_box(CACHE_TOP, CACHE_LEFT, CACHE_H, CACHE_W);
   title_center(CACHE_TOP, CACHE_LEFT, CACHE_W, "Кеш процессора", COLOR_GREEN);
 
-  int base_rows[5] = {80, 10, 30, 50, 60};
+  int base_rows[5] = { 80, 10, 30, 50, 60 };
 
   for (int r = 0; r < 5; r++)
     {
@@ -312,7 +354,7 @@ draw_keys(void)
   print_in_box(KEYS_TOP + 1, text_col, inner_w,
                "a/d - move   n - write demo   r - randomize");
   print_in_box(KEYS_TOP + 2, text_col, inner_w,
-               "l - load     s - save         q - quit");
+               "l - load     s - save         q - quit      i - reset");
 }
 
 static void
@@ -320,8 +362,17 @@ draw_input_prompt(void)
 {
   mt_gotoXY(INPUT_TOP, INPUT_LEFT);
   mt_setfgcolor(COLOR_WHITE);
-  fputs("Команда: a/d/n/r/l/s/q", stdout);
+  fputs("Команда: a/d/n/r/l/s/q/i", stdout);
   mt_setdefaultcolor();
+}
+
+static void
+consume_rest_of_line(void)
+{
+  int c;
+  while ((c = getchar()) != '\n' && c != EOF)
+    {
+    }
 }
 
 static void
@@ -338,11 +389,47 @@ read_line(char *buf, size_t bufsz)
   buf[strcspn(buf, "\n")] = '\0';
 }
 
-static void
-consume_rest_of_line(void)
+static int
+hexval(int c)
 {
-  int c;
-  while ((c = getchar()) != '\n' && c != EOF) {}
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+  if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+  return -1;
+}
+
+/* Парсит "+FFFF" / "-FFFF" / "FFFF" (HEX).
+   Возвращает value в формате: sign(bit14) + magnitude(14bit). */
+static int
+parse_sc_value(const char *s, int *out)
+{
+  if (!s || !out) return -1;
+
+  while (*s == ' ' || *s == '\t') s++;
+
+  int sign = 0;
+  if (*s == '+' || *s == '-')
+    {
+      sign = (*s == '-');
+      s++;
+    }
+
+  /* пропустим пробелы после знака */
+  while (*s == ' ' || *s == '\t') s++;
+
+  if (strlen(s) != 4) return -1;
+
+  int mag = 0;
+  for (int i = 0; i < 4; i++)
+    {
+      int hv = hexval((unsigned char)s[i]);
+      if (hv < 0) return -1;
+      mag = (mag << 4) | hv;
+    }
+
+  mag &= 0x3FFF; /* 14 бит */
+  *out = (sign ? (1 << 14) : 0) | mag;
+  return 0;
 }
 
 int
@@ -379,6 +466,7 @@ main(void)
   sc_accumulatorInit();
   sc_icounterInit();
 
+  /* демо */
   sc_memorySet(0, 0x3434);
   sc_memorySet(1, 0x1000);
   sc_memorySet(2, 0x1102);
@@ -389,6 +477,9 @@ main(void)
   int selected = 0;
 
   mt_setcursorvisible(0);
+
+  rk_mytermsave();
+  rk_mytermregime(1, 0, 1, 0, 0); /* noncanon, vtime=0 vmin=1, echo off */
 
   for (;;)
     {
@@ -407,70 +498,194 @@ main(void)
       draw_keys();
       draw_input_prompt();
 
-      mt_gotoXY(rows, 1);
-      mt_setdefaultcolor();
-      printf("Введите команду: ");
-      fflush(stdout);
-
-      int ch = getchar();
-      if (ch == EOF)
-        break;
-
-      if (ch == '\n')
+      enum keys key = KEY_UNKNOWN;
+      if (rk_readkey(&key) != 0)
         continue;
 
-      consume_rest_of_line();
-
-      if (ch == 'q')
+      /* ESC — выход */
+      if (key == KEY_ESC)
         break;
 
-      if (ch == 'd')
-        selected = (selected + 1) % 100;
-      else if (ch == 'a')
-        selected = (selected + 99) % 100;
-      else if (ch == 'n')
+      /* Стрелки */
+      if (key == KEY_RIGHT)
         {
-          int newv = (selected * 37 + 0x123) & 0x3FFF;
-          sc_memorySet(selected, newv);
+          selected = (selected + 1) % MEM_CELLS_TOTAL;
+          continue;
         }
-      else if (ch == 'r')
+      if (key == KEY_LEFT)
         {
-          for (int i = 0; i < 20; i++)
+          selected = (selected + MEM_CELLS_TOTAL - 1) % MEM_CELLS_TOTAL;
+          continue;
+        }
+      if (key == KEY_UP)
+        {
+          if (selected >= MEM_COLS_PER_ROW)
+            selected -= MEM_COLS_PER_ROW;
+          continue;
+        }
+      if (key == KEY_DOWN)
+        {
+          if (selected + MEM_COLS_PER_ROW < MEM_CELLS_TOTAL)
+            selected += MEM_COLS_PER_ROW;
+          continue;
+        }
+
+      /* Буквенные команды: берём символ из rk_last_char */
+      if (key == KEY_CHAR)
+        {
+          int ch = rk_last_char;
+
+          if (ch >= 'A' && ch <= 'Z')
+            ch = ch - 'A' + 'a'; /* нормализуем в lower */
+
+          if (ch == 'q')
+            break;
+
+          if (ch == 'i')
             {
-              int addr = (i * 7 + 13) % 100;
-              int val = (addr * 91 + 0x2A) & 0x3FFF;
-              sc_memorySet(addr, val);
+              sc_memoryInit();
+              sc_accumulatorSet(0);
+              sc_icounterSet(0);
+              continue;
+            }
+
+          if (ch == 'n')
+            {
+              int newv = (selected * 37 + 0x123) & 0x3FFF;
+              sc_memorySet(selected, newv);
+              continue;
+            }
+
+          if (ch == 'r')
+            {
+              for (int i = 0; i < 20; i++)
+                {
+                  int addr = (i * 7 + 13) % MEM_CELLS_TOTAL;
+                  int val = (addr * 91 + 0x2A) & 0x3FFF;
+                  sc_memorySet(addr, val);
+                }
+              continue;
+            }
+
+          if (ch == 's')
+            {
+              char filename[128];
+
+              /* на время ввода файла: возвращаем канонический режим + echo */
+              rk_mytermregime(0, 0, 0, 1, 1);
+
+              mt_gotoXY(INPUT_TOP, INPUT_LEFT);
+              mt_setfgcolor(COLOR_WHITE);
+              fputs("Введите имя файла для сохранения: ", stdout);
+              mt_setdefaultcolor();
+              fflush(stdout);
+
+              read_line(filename, sizeof(filename));
+              if (filename[0] != '\0')
+                sc_memorySave(filename);
+
+              /* обратно в неканонический, без echo */
+              rk_mytermregime(1, 0, 1, 0, 0);
+              continue;
+            }
+
+          if (ch == 'l')
+            {
+              char filename[128];
+
+              rk_mytermregime(0, 0, 0, 1, 1);
+
+              mt_gotoXY(INPUT_TOP, INPUT_LEFT);
+              mt_setfgcolor(COLOR_WHITE);
+              fputs("Введите имя файла для загрузки: ", stdout);
+              mt_setdefaultcolor();
+              fflush(stdout);
+
+              read_line(filename, sizeof(filename));
+              if (filename[0] != '\0')
+                sc_memoryLoad(filename);
+
+              rk_mytermregime(1, 0, 1, 0, 0);
+              continue;
             }
         }
-      else if (ch == 's')
-        {
-          char filename[128];
 
+            /* ENTER — редактирование выбранной ячейки памяти */
+      if (key == KEY_ENTER)
+        {
+          int new_value;
+
+          /* подсказка внизу */
           mt_gotoXY(INPUT_TOP, INPUT_LEFT);
           mt_setfgcolor(COLOR_WHITE);
-          fputs("Введите имя файла для сохранения: ", stdout);
+          fputs("Введите значение ячейки (+FFFF/-FFFF/FFFF): ", stdout);
           mt_setdefaultcolor();
           fflush(stdout);
 
-          read_line(filename, sizeof(filename));
-          if (filename[0] != '\0')
-            sc_memorySave(filename);
+          /* rk_readvalue читает до Enter и возвращает value в формате SC */
+          if (rk_readvalue(&new_value, -1) == 0)
+            {
+              sc_memorySet(selected, new_value);
+            }
+          continue;
         }
-      else if (ch == 'l')
+
+      /* F5 — редактирование аккумулятора */
+            if (key == KEY_F5)
         {
-          char filename[128];
+          char buf[64];
+          int new_value;
+
+          /* временно включаем обычный ввод, чтобы было видно что печатаешь */
+          rk_mytermregime(0, 0, 0, 1, 1); /* canonical + echo */
 
           mt_gotoXY(INPUT_TOP, INPUT_LEFT);
           mt_setfgcolor(COLOR_WHITE);
-          fputs("Введите имя файла для загрузки: ", stdout);
+          fputs("Введите аккумулятор (+FFFF/-FFFF/FFFF): ", stdout);
           mt_setdefaultcolor();
           fflush(stdout);
 
-          read_line(filename, sizeof(filename));
-          if (filename[0] != '\0')
-            sc_memoryLoad(filename);
+          read_line(buf, sizeof(buf));
+
+          /* обратно в неканонический */
+          rk_mytermregime(1, 0, 1, 0, 0);
+
+          if (parse_sc_value(buf, &new_value) == 0)
+            {
+              sc_accumulatorSet(new_value);
+            }
+          continue;
+        }
+
+      /* F6 — редактирование счётчика команд */
+      if (key == KEY_F6)
+        {
+          int ic;
+
+          mt_gotoXY(INPUT_TOP, INPUT_LEFT);
+          mt_setfgcolor(COLOR_WHITE);
+          fputs("Введите счётчик команд (0..127): ", stdout);
+          mt_setdefaultcolor();
+          fflush(stdout);
+
+          /* Для IC удобнее читать обычное число в каноническом режиме */
+          rk_mytermregime(0, 0, 0, 1, 1);
+
+          char buf[32];
+          read_line(buf, sizeof(buf));
+
+          rk_mytermregime(1, 0, 1, 0, 0);
+
+          ic = atoi(buf);
+          if (ic >= 0 && ic < SC_MEMORY_SIZE)
+            {
+              sc_icounterSet(ic);
+            }
+          continue;
         }
     }
+
+  rk_mytermrestore();
 
   mt_setdefaultcolor();
   mt_setcursorvisible(1);
