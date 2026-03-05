@@ -366,14 +366,7 @@ draw_input_prompt(void)
   mt_setdefaultcolor();
 }
 
-static void
-consume_rest_of_line(void)
-{
-  int c;
-  while ((c = getchar()) != '\n' && c != EOF)
-    {
-    }
-}
+
 
 static void
 read_line(char *buf, size_t bufsz)
