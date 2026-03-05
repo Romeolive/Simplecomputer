@@ -6,8 +6,7 @@ extern "C" {
 #endif
 
 /* Логические клавиши */
-enum keys
-{
+enum keys {
   KEY_UNKNOWN = 0,
 
   KEY_UP,
