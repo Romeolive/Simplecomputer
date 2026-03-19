@@ -81,7 +81,6 @@
 #define INPUT_TOP (CACHE_TOP + CACHE_H + 1)
 #define INPUT_LEFT 1
 
-/* Команды SimpleComputer */
 #define CMD_READ 0x10
 #define CMD_WRITE 0x11
 #define CMD_LOAD 0x20
@@ -1050,11 +1049,23 @@ CU (void)
       break;
 
     case CMD_HALT:
-      io_clear ();
-      io_put_line (0, "HALT");
-      g_run = 0;
-      stop_timer ();
-      return;
+      {
+        int outv = 0;
+
+        io_clear ();
+        io_put_line (0, "HALT");
+
+        if (sc_memoryGet (21, &outv) == 0)
+          {
+            io_put_line (1, "RESULT [21]");
+            snprintf (io_lines[2], sizeof (io_lines[2]), "%c%04X",
+                      ((outv >> 14) & 1) ? '-' : '+', outv & 0x3FFF);
+          }
+
+        g_run = 0;
+        stop_timer ();
+        return;
+      }
 
     default:
       sc_regSet (SC_FLAG_BADCOMMAND, 1);
@@ -1319,6 +1330,38 @@ main (void)
             {
               /* Один тактовый импульс БЕЗ проверки флага T */
               process_tick (0, &selected);
+              continue;
+            }
+
+          if (ch == 'w')
+            {
+              char filename[128];
+
+              rk_mytermregime (0, 0, 0, 1, 1);
+
+              mt_gotoXY (INPUT_TOP, INPUT_LEFT);
+              mt_setfgcolor (COLOR_WHITE);
+              fputs ("Введите имя файла для сохранения: ", stdout);
+              mt_setdefaultcolor ();
+              fflush (stdout);
+
+              read_line (filename, sizeof (filename));
+              if (filename[0] != '\0')
+                {
+                  if (sc_memorySave (filename) == 0)
+                    {
+                      io_clear ();
+                      io_put_line (0, "SAVE FILE");
+                    }
+                  else
+                    {
+                      io_clear ();
+                      io_put_line (0, "SAVE ERROR");
+                    }
+                }
+
+              rk_mytermregime (1, 0, 1, 0, 0);
+              g_need_redraw = 1;
               continue;
             }
 
