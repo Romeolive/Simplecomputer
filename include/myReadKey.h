@@ -32,12 +32,10 @@ extern "C"
   int rk_mytermsave (void);
   int rk_mytermrestore (void);
 
-
   int rk_mytermregime (int regime, int vtime, int vmin, int echo, int sigint);
 
   /* Считывает клавишу (стрелки, F5/F6, Enter, ESC, обычные символы) */
   int rk_readkey (enum keys *key);
-  
 
   int rk_readvalue (int *value, int timeout_ms);
 

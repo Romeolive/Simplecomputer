@@ -98,10 +98,8 @@ static volatile sig_atomic_t g_alarm = 0;
 static volatile sig_atomic_t g_reset = 0;
 static volatile sig_atomic_t g_need_redraw = 1;
 
-static struct itimerval g_timer = {
-  .it_interval = { 0, 500000 },
-  .it_value = { 0, 500000 }
-};
+static struct itimerval g_timer
+    = { .it_interval = { 0, 500000 }, .it_value = { 0, 500000 } };
 
 /* Буфер блока IN-OUT */
 static char io_lines[5][32];
@@ -924,8 +922,7 @@ CU (void)
           {
             sc_memorySet (operand, newv);
             snprintf (io_lines[3], sizeof (io_lines[3]), "[%02d]=%c%04X",
-                      operand, ((newv >> 14) & 1) ? '-' : '+',
-                      newv & 0x3FFF);
+                      operand, ((newv >> 14) & 1) ? '-' : '+', newv & 0x3FFF);
           }
         else
           {
@@ -1166,7 +1163,8 @@ main (void)
   if (setup_signals () != 0)
     {
       rk_mytermrestore ();
-      fprintf (stderr, "Ошибка: не удалось установить обработчики сигналов.\n");
+      fprintf (stderr,
+               "Ошибка: не удалось установить обработчики сигналов.\n");
       return 1;
     }
 
