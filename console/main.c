@@ -1,6 +1,8 @@
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #include <locale.h>
@@ -26,7 +28,7 @@
 /* Координаты по рисунку */
 #define MEM_TOP 1
 #define MEM_LEFT 1
-#define MEM_H (MEM_ROWS_TOTAL + 2) /* верх + низ рамки + строки памяти */
+#define MEM_H (MEM_ROWS_TOTAL + 2)
 #define MEM_W 63
 
 #define ACC_TOP 1
@@ -54,13 +56,11 @@
 #define BIG_H 12
 #define BIG_W 47
 
-/* Формат под памятью */
 #define FMT_TOP (MEM_TOP + MEM_H)
 #define FMT_LEFT 1
 #define FMT_H 3
 #define FMT_W 62
 
-/* Нижние блоки */
 #define CACHE_TOP (FMT_TOP + FMT_H)
 #define CACHE_LEFT 1
 #define CACHE_H 7
@@ -78,6 +78,35 @@
 
 #define INPUT_TOP (CACHE_TOP + CACHE_H + 1)
 #define INPUT_LEFT 1
+
+/* Команды SimpleComputer */
+#define CMD_READ 0x10
+#define CMD_WRITE 0x11
+#define CMD_LOAD 0x20
+#define CMD_STORE 0x21
+#define CMD_ADD 0x30
+#define CMD_SUB 0x31
+#define CMD_DIVIDE 0x32
+#define CMD_MUL 0x33
+#define CMD_JUMP 0x40
+#define CMD_JNEG 0x41
+#define CMD_JZ 0x42
+#define CMD_HALT 0x43
+
+static volatile sig_atomic_t g_run = 0;
+static volatile sig_atomic_t g_alarm = 0;
+static volatile sig_atomic_t g_reset = 0;
+static volatile sig_atomic_t g_need_redraw = 1;
+
+static struct itimerval g_timer = {
+  .it_interval = { 0, 500000 },
+  .it_value = { 0, 500000 }
+};
+
+/* Буфер блока IN-OUT */
+static char io_lines[5][32];
+
+/* ---------------- util ---------------- */
 
 static int
 term_width_utf8 (const char *s)
@@ -115,7 +144,6 @@ term_width_utf8 (const char *s)
   return w;
 }
 
-/* Пишем заголовок поверх верхней линии рамки */
 static void
 title_center (int top, int left, int width, const char *title,
               enum colors color)
@@ -123,13 +151,12 @@ title_center (int top, int left, int width, const char *title,
   const int inner_l = left + 1;
   const int inner_r = left + width - 2;
 
-  /* верхняя линия полностью (простые ASCII, чтобы не ломалось в терминалах) */
   mt_gotoXY (top, inner_l);
   for (int i = 0; i < (width - 2); i++)
     putchar ('-');
 
   int tw = term_width_utf8 (title);
-  int total = tw + 2; /* пробелы вокруг */
+  int total = tw + 2;
 
   if (total > (width - 2))
     return;
@@ -161,6 +188,118 @@ print_in_box (int row, int col, int inner_w, const char *s)
 }
 
 static void
+read_line (char *buf, size_t bufsz)
+{
+  if (!buf || bufsz == 0)
+    return;
+
+  if (!fgets (buf, (int)bufsz, stdin))
+    {
+      buf[0] = '\0';
+      return;
+    }
+  buf[strcspn (buf, "\n")] = '\0';
+}
+
+static int
+hexval (int c)
+{
+  if (c >= '0' && c <= '9')
+    return c - '0';
+  if (c >= 'a' && c <= 'f')
+    return 10 + (c - 'a');
+  if (c >= 'A' && c <= 'F')
+    return 10 + (c - 'A');
+  return -1;
+}
+
+static int
+parse_sc_value (const char *s, int *out)
+{
+  if (!s || !out)
+    return -1;
+
+  while (*s == ' ' || *s == '\t')
+    s++;
+
+  int sign = 0;
+  if (*s == '+' || *s == '-')
+    {
+      sign = (*s == '-');
+      s++;
+    }
+
+  while (*s == ' ' || *s == '\t')
+    s++;
+
+  if (strlen (s) != 4)
+    return -1;
+
+  int mag = 0;
+  for (int i = 0; i < 4; i++)
+    {
+      int hv = hexval ((unsigned char)s[i]);
+      if (hv < 0)
+        return -1;
+      mag = (mag << 4) | hv;
+    }
+
+  mag &= 0x3FFF;
+  *out = (sign ? (1 << 14) : 0) | mag;
+  return 0;
+}
+
+static int
+sc_to_int (int raw)
+{
+  int sign = (raw >> 14) & 1;
+  int mag = raw & 0x3FFF;
+  return sign ? -mag : mag;
+}
+
+static int
+int_to_sc (int value, int *raw)
+{
+  if (!raw)
+    return -1;
+
+  int sign = 0;
+  int mag = value;
+
+  if (value < 0)
+    {
+      sign = 1;
+      mag = -value;
+    }
+
+  if (mag > 0x3FFF)
+    return -1;
+
+  *raw = (sign << 14) | (mag & 0x3FFF);
+  return 0;
+}
+
+/* ---------------- io block ---------------- */
+
+static void
+io_clear (void)
+{
+  for (int i = 0; i < 5; i++)
+    io_lines[i][0] = '\0';
+}
+
+static void
+io_put_line (int line, const char *text)
+{
+  if (line < 0 || line >= 5 || text == NULL)
+    return;
+
+  snprintf (io_lines[line], sizeof (io_lines[line]), "%s", text);
+}
+
+/* ---------------- draw blocks ---------------- */
+
+static void
 draw_memory (int selected)
 {
   bc_box (MEM_TOP, MEM_LEFT, MEM_H, MEM_W);
@@ -171,12 +310,9 @@ draw_memory (int selected)
 
   for (int i = 0; i < MEM_CELLS_TOTAL; i++)
     {
-      /* 0..119 -> 12 строк по 10
-         120..127 -> 13-я строка 8 значений */
-      int row = i / MEM_COLS_PER_ROW; /* 0..12 */
-      int col = i % MEM_COLS_PER_ROW; /* 0..9 */
+      int row = i / MEM_COLS_PER_ROW;
+      int col = i % MEM_COLS_PER_ROW;
 
-      /* Для последней строки печатаем только 8 ячеек */
       if (row == MEM_FULL_ROWS && col >= MEM_LAST_ROW_CELLS)
         continue;
 
@@ -190,8 +326,6 @@ draw_memory (int selected)
         printCell (i, COLOR_WHITE, COLOR_BLACK);
     }
 
-  /* Для аккуратности: подчистить "хвост" в последней строке после 8-й ячейки
-   */
   {
     int tail_row = start_row + MEM_FULL_ROWS;
     int tail_col = start_col + MEM_LAST_ROW_CELLS * 6;
@@ -285,7 +419,6 @@ draw_bigcell (int addr)
                        COLOR_BLACK);
     }
 
-  /* подпись внутри рамки */
   mt_setfgcolor (COLOR_BLUE);
   mt_gotoXY (BIG_TOP + BIG_H - 2, BIG_LEFT + 2);
   printf ("Номер редактируемой ячейки: %03d", addr);
@@ -334,13 +467,15 @@ draw_cache (void)
 static void
 draw_inout (int selected)
 {
+  (void)selected;
+
   bc_box (INOUT_TOP, INOUT_LEFT, INOUT_H, INOUT_W);
   title_center (INOUT_TOP, INOUT_LEFT, INOUT_W, "IN--OUT", COLOR_GREEN);
 
   for (int i = 0; i < 5; i++)
     {
       mt_gotoXY (INOUT_TOP + 1 + i, INOUT_LEFT + 1);
-      printTerm (i, i == selected);
+      printf ("%-12s", io_lines[i]);
     }
 }
 
@@ -354,9 +489,9 @@ draw_keys (void)
   const int text_col = KEYS_LEFT + 1;
 
   print_in_box (KEYS_TOP + 1, text_col, inner_w,
-                "a/d - move   n - write demo   r - randomize");
+                "Arrows move | Enter edit | Esc quit");
   print_in_box (KEYS_TOP + 2, text_col, inner_w,
-                "l - load     s - save         q - quit      i - reset");
+                "F5 acc | F6 ic | r run | s step | i reset");
 }
 
 static void
@@ -364,26 +499,34 @@ draw_input_prompt (void)
 {
   mt_gotoXY (INPUT_TOP, INPUT_LEFT);
   mt_setfgcolor (COLOR_WHITE);
-  fputs ("Команда: a/d/n/r/l/s/q/i", stdout);
+  fputs ("Arrows/Enter/F5/F6/r/s/i (ESC - exit)", stdout);
   mt_setdefaultcolor ();
 }
 
-static void
-read_line (char *buf, size_t bufsz)
-{
-  if (!buf || bufsz == 0)
-    return;
+/* ---------------- InPlace editing ---------------- */
 
-  if (!fgets (buf, (int)bufsz, stdin))
-    {
-      buf[0] = '\0';
-      return;
-    }
-  buf[strcspn (buf, "\n")] = '\0';
+static void
+cell_pos (int addr, int *row, int *col)
+{
+  const int start_row = MEM_TOP + 1;
+  const int start_col = MEM_LEFT + 2;
+
+  int r = addr / MEM_COLS_PER_ROW;
+  int c = addr % MEM_COLS_PER_ROW;
+
+  *row = start_row + r;
+  *col = start_col + c * 6;
 }
 
 static int
-hexval (int c)
+is_hex_digit (int c)
+{
+  return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
+         || (c >= 'A' && c <= 'F');
+}
+
+static int
+hex_to_int (int c)
 {
   if (c >= '0' && c <= '9')
     return c - '0';
@@ -394,44 +537,592 @@ hexval (int c)
   return -1;
 }
 
-/* Парсит "+FFFF" / "-FFFF" / "FFFF" (HEX).
-   Возвращает value в формате: sign(bit14) + magnitude(14bit). */
 static int
-parse_sc_value (const char *s, int *out)
+sc_pack_sign_mag (int sign, int mag)
 {
-  if (!s || !out)
-    return -1;
+  mag &= 0x3FFF;
+  return (sign ? (1 << 14) : 0) | mag;
+}
 
-  while (*s == ' ' || *s == '\t')
-    s++;
+static void
+draw_field_5 (int row, int col, const char buf5[6], enum colors fg,
+              enum colors bg)
+{
+  mt_setfgcolor (fg);
+  mt_setbgcolor (bg);
+  mt_gotoXY (row, col);
+  for (int i = 0; i < 5; i++)
+    putchar (buf5[i]);
+  mt_setdefaultcolor ();
+}
 
-  int sign = 0;
-  if (*s == '+' || *s == '-')
+static int
+inplace_edit_hex4 (int row, int col, int *out_value, int old_value)
+{
+  char buf[6];
+  buf[0] = (((old_value >> 14) & 1) ? '-' : '+');
+  snprintf (buf + 1, 5, "%04X", old_value & 0x3FFF);
+
+  int pos = 0;
+  mt_setcursorvisible (1);
+
+  for (;;)
     {
-      sign = (*s == '-');
-      s++;
+      draw_field_5 (row, col, buf, COLOR_BLACK, COLOR_CYAN);
+      mt_gotoXY (row, col + pos);
+
+      enum keys k = KEY_UNKNOWN;
+      if (rk_readkey (&k) != 0)
+        continue;
+
+      if (k == KEY_ESC)
+        {
+          mt_setcursorvisible (0);
+          return -1;
+        }
+
+      if (k == KEY_ENTER)
+        {
+          int sign = (buf[0] == '-') ? 1 : 0;
+          int mag = 0;
+
+          for (int i = 1; i <= 4; i++)
+            {
+              int hv = hex_to_int ((unsigned char)buf[i]);
+              if (hv < 0)
+                {
+                  mag = -1;
+                  break;
+                }
+              mag = (mag << 4) | hv;
+            }
+
+          if (mag < 0)
+            continue;
+
+          if (out_value)
+            *out_value = sc_pack_sign_mag (sign, mag);
+
+          mt_setcursorvisible (0);
+          return 0;
+        }
+
+      if (k == KEY_LEFT)
+        {
+          if (pos > 0)
+            pos--;
+          continue;
+        }
+      if (k == KEY_RIGHT)
+        {
+          if (pos < 4)
+            pos++;
+          continue;
+        }
+
+      if (k == KEY_CHAR)
+        {
+          int ch = rk_last_char;
+
+          if (ch == 127 || ch == 8)
+            {
+              if (pos > 0)
+                pos--;
+              if (pos == 0)
+                buf[0] = '+';
+              else
+                buf[pos] = '0';
+              continue;
+            }
+
+          if (pos == 0 && (ch == '+' || ch == '-'))
+            {
+              buf[0] = (char)ch;
+              pos = 1;
+              continue;
+            }
+
+          if (pos >= 1 && pos <= 4 && is_hex_digit (ch))
+            {
+              if (ch >= 'a' && ch <= 'f')
+                ch = ch - 'a' + 'A';
+              buf[pos] = (char)ch;
+              if (pos < 4)
+                pos++;
+              continue;
+            }
+        }
+    }
+}
+
+static int
+inplace_edit_dec (int row, int col, int width, int minv, int maxv,
+                  int *out_value, int old_value)
+{
+  char buf[8];
+  snprintf (buf, sizeof (buf), "%*d", width, old_value);
+
+  int pos = 0;
+  mt_setcursorvisible (1);
+
+  for (;;)
+    {
+      mt_setfgcolor (COLOR_BLACK);
+      mt_setbgcolor (COLOR_CYAN);
+      mt_gotoXY (row, col);
+      for (int i = 0; i < width; i++)
+        putchar (buf[i]);
+      mt_setdefaultcolor ();
+
+      mt_gotoXY (row, col + pos);
+
+      enum keys k = KEY_UNKNOWN;
+      if (rk_readkey (&k) != 0)
+        continue;
+
+      if (k == KEY_ESC)
+        {
+          mt_setcursorvisible (0);
+          return -1;
+        }
+
+      if (k == KEY_ENTER)
+        {
+          int v = 0;
+          int seen = 0;
+          for (int i = 0; i < width; i++)
+            {
+              if (buf[i] >= '0' && buf[i] <= '9')
+                {
+                  v = v * 10 + (buf[i] - '0');
+                  seen = 1;
+                }
+            }
+
+          if (!seen)
+            v = old_value;
+
+          if (v < minv || v > maxv)
+            continue;
+
+          if (out_value)
+            *out_value = v;
+
+          mt_setcursorvisible (0);
+          return 0;
+        }
+
+      if (k == KEY_LEFT)
+        {
+          if (pos > 0)
+            pos--;
+          continue;
+        }
+      if (k == KEY_RIGHT)
+        {
+          if (pos < width - 1)
+            pos++;
+          continue;
+        }
+
+      if (k == KEY_CHAR)
+        {
+          int ch = rk_last_char;
+
+          if (ch == 127 || ch == 8)
+            {
+              buf[pos] = ' ';
+              if (pos > 0)
+                pos--;
+              continue;
+            }
+
+          if (ch >= '0' && ch <= '9')
+            {
+              buf[pos] = (char)ch;
+              if (pos < width - 1)
+                pos++;
+              continue;
+            }
+        }
+    }
+}
+
+static void
+acc_field_pos (int *row, int *col)
+{
+  *row = ACC_TOP + 1;
+  *col = ACC_LEFT + 2 + 4;
+}
+
+static void
+ic_field_pos (int *row, int *col)
+{
+  *row = IC_TOP + 1;
+  *col = IC_LEFT + 2 + 10;
+}
+
+/* ---------------- machine / signals ---------------- */
+
+static void
+start_timer (void)
+{
+  setitimer (ITIMER_REAL, &g_timer, NULL);
+}
+
+static void
+stop_timer (void)
+{
+  struct itimerval stop = { { 0, 0 }, { 0, 0 } };
+  setitimer (ITIMER_REAL, &stop, NULL);
+}
+
+static void
+reset_machine (void)
+{
+  stop_timer ();
+  g_run = 0;
+
+  sc_memoryInit ();
+  sc_regInit ();
+  sc_accumulatorInit ();
+  sc_icounterInit ();
+  io_clear ();
+}
+
+static int
+ALU (int command, int operand)
+{
+  int acc_raw, mem_raw;
+  int acc, mem, result, result_raw;
+
+  if (sc_accumulatorGet (&acc_raw) != 0)
+    return -1;
+  if (sc_memoryGet (operand, &mem_raw) != 0)
+    {
+      sc_regSet (SC_FLAG_OUTMEM, 1);
+      return -1;
     }
 
-  /* пропустим пробелы после знака */
-  while (*s == ' ' || *s == '\t')
-    s++;
+  acc = sc_to_int (acc_raw);
+  mem = sc_to_int (mem_raw);
 
-  if (strlen (s) != 4)
-    return -1;
-
-  int mag = 0;
-  for (int i = 0; i < 4; i++)
+  switch (command)
     {
-      int hv = hexval ((unsigned char)s[i]);
-      if (hv < 0)
-        return -1;
-      mag = (mag << 4) | hv;
+    case CMD_ADD:
+      result = acc + mem;
+      break;
+    case CMD_SUB:
+      result = acc - mem;
+      break;
+    case CMD_DIVIDE:
+      if (mem == 0)
+        {
+          sc_regSet (SC_FLAG_DIVZERO, 1);
+          return -1;
+        }
+      result = acc / mem;
+      break;
+    case CMD_MUL:
+      result = acc * mem;
+      break;
+    default:
+      sc_regSet (SC_FLAG_BADCOMMAND, 1);
+      return -1;
     }
 
-  mag &= 0x3FFF; /* 14 бит */
-  *out = (sign ? (1 << 14) : 0) | mag;
+  if (int_to_sc (result, &result_raw) != 0)
+    {
+      sc_regSet (SC_FLAG_OVERFLOW, 1);
+      return -1;
+    }
+
+  return sc_accumulatorSet (result_raw);
+}
+
+static void
+redraw_now (int selected)
+{
+  mt_clrscr ();
+  draw_memory (selected);
+  draw_accumulator ();
+  draw_flags ();
+  draw_icounter ();
+  draw_command (selected);
+  draw_bigcell (selected);
+  draw_format (selected);
+  draw_cache ();
+  draw_inout (selected);
+  draw_keys ();
+  draw_input_prompt ();
+  g_need_redraw = 0;
+}
+
+static void
+CU (void)
+{
+  int ic;
+  int value;
+  int sign, command, operand;
+  int acc_raw;
+
+  if (sc_icounterGet (&ic) != 0)
+    return;
+
+  if (ic < 0 || ic >= SC_MEMORY_SIZE)
+    {
+      sc_regSet (SC_FLAG_OUTMEM, 1);
+      g_run = 0;
+      stop_timer ();
+      io_clear ();
+      io_put_line (0, "BAD ADDRESS");
+      return;
+    }
+
+  if (sc_memoryGet (ic, &value) != 0)
+    {
+      sc_regSet (SC_FLAG_OUTMEM, 1);
+      g_run = 0;
+      stop_timer ();
+      io_clear ();
+      io_put_line (0, "MEM ERROR");
+      return;
+    }
+
+  if (sc_commandDecode (value, &sign, &command, &operand) != 0)
+    {
+      sc_regSet (SC_FLAG_BADCOMMAND, 1);
+      g_run = 0;
+      stop_timer ();
+      io_clear ();
+      io_put_line (0, "BAD CMD");
+      return;
+    }
+
+  switch (command)
+    {
+    case CMD_READ:
+      {
+        char buf[64];
+        int newv;
+
+        rk_mytermregime (0, 0, 0, 1, 1);
+
+        io_clear ();
+        io_put_line (0, "READ");
+        snprintf (io_lines[1], sizeof (io_lines[1]), "addr %02d", operand);
+        snprintf (io_lines[2], sizeof (io_lines[2]), "> ");
+        g_need_redraw = 1;
+        redraw_now (ic);
+
+        mt_gotoXY (INOUT_TOP + 3, INOUT_LEFT + 3);
+        fflush (stdout);
+
+        read_line (buf, sizeof (buf));
+
+        if (parse_sc_value (buf, &newv) == 0)
+          {
+            sc_memorySet (operand, newv);
+            snprintf (io_lines[3], sizeof (io_lines[3]), "[%02d]=%c%04X",
+                      operand, ((newv >> 14) & 1) ? '-' : '+',
+                      newv & 0x3FFF);
+          }
+        else
+          {
+            io_put_line (3, "INPUT ERROR");
+          }
+
+        rk_mytermregime (1, 0, 1, 0, 0);
+      }
+      break;
+
+    case CMD_WRITE:
+      {
+        int outv = 0;
+        sc_memoryGet (operand, &outv);
+
+        io_clear ();
+        io_put_line (0, "WRITE");
+        snprintf (io_lines[1], sizeof (io_lines[1]), "[%02d] =", operand);
+        snprintf (io_lines[2], sizeof (io_lines[2]), "%c%04X",
+                  ((outv >> 14) & 1) ? '-' : '+', outv & 0x3FFF);
+      }
+      break;
+
+    case CMD_LOAD:
+      if (sc_memoryGet (operand, &value) == 0)
+        {
+          sc_accumulatorSet (value);
+          io_clear ();
+          io_put_line (0, "LOAD");
+          snprintf (io_lines[1], sizeof (io_lines[1]), "ACC<-[%02d]", operand);
+        }
+      else
+        {
+          sc_regSet (SC_FLAG_OUTMEM, 1);
+          g_run = 0;
+          stop_timer ();
+          return;
+        }
+      break;
+
+    case CMD_STORE:
+      if (sc_accumulatorGet (&acc_raw) == 0)
+        {
+          sc_memorySet (operand, acc_raw);
+          io_clear ();
+          io_put_line (0, "STORE");
+          snprintf (io_lines[1], sizeof (io_lines[1]), "[%02d]<-ACC", operand);
+        }
+      else
+        {
+          g_run = 0;
+          stop_timer ();
+          return;
+        }
+      break;
+
+    case CMD_ADD:
+    case CMD_SUB:
+    case CMD_DIVIDE:
+    case CMD_MUL:
+      if (ALU (command, operand) != 0)
+        {
+          g_run = 0;
+          stop_timer ();
+          io_clear ();
+          io_put_line (0, "ALU ERROR");
+          return;
+        }
+      else
+        {
+          io_clear ();
+          if (command == CMD_ADD)
+            io_put_line (0, "ADD");
+          else if (command == CMD_SUB)
+            io_put_line (0, "SUB");
+          else if (command == CMD_DIVIDE)
+            io_put_line (0, "DIV");
+          else if (command == CMD_MUL)
+            io_put_line (0, "MUL");
+
+          snprintf (io_lines[1], sizeof (io_lines[1]), "op=[%02d]", operand);
+        }
+      break;
+
+    case CMD_JUMP:
+      io_clear ();
+      io_put_line (0, "JUMP");
+      snprintf (io_lines[1], sizeof (io_lines[1]), "to %02d", operand);
+      sc_icounterSet (operand);
+      g_need_redraw = 1;
+      return;
+
+    case CMD_JNEG:
+      io_clear ();
+      io_put_line (0, "JNEG");
+      if (sc_accumulatorGet (&acc_raw) == 0 && ((acc_raw >> 14) & 1))
+        {
+          snprintf (io_lines[1], sizeof (io_lines[1]), "jump %02d", operand);
+          sc_icounterSet (operand);
+          g_need_redraw = 1;
+          return;
+        }
+      else
+        {
+          io_put_line (1, "no jump");
+        }
+      break;
+
+    case CMD_JZ:
+      io_clear ();
+      io_put_line (0, "JZ");
+      if (sc_accumulatorGet (&acc_raw) == 0 && ((acc_raw & 0x3FFF) == 0))
+        {
+          snprintf (io_lines[1], sizeof (io_lines[1]), "jump %02d", operand);
+          sc_icounterSet (operand);
+          g_need_redraw = 1;
+          return;
+        }
+      else
+        {
+          io_put_line (1, "no jump");
+        }
+      break;
+
+    case CMD_HALT:
+      io_clear ();
+      io_put_line (0, "HALT");
+      g_run = 0;
+      stop_timer ();
+      return;
+
+    default:
+      sc_regSet (SC_FLAG_BADCOMMAND, 1);
+      g_run = 0;
+      stop_timer ();
+      io_clear ();
+      io_put_line (0, "BAD CMD");
+      return;
+    }
+
+  sc_icounterSet (ic + 1);
+  g_need_redraw = 1;
+}
+
+static void
+process_tick (int check_ignoreclock, int *selected)
+{
+  if (check_ignoreclock)
+    {
+      int ignore = 0;
+      sc_regGet (SC_FLAG_IGNORECLOCK, &ignore);
+      if (ignore)
+        {
+          g_need_redraw = 1;
+          return;
+        }
+    }
+
+  CU ();
+
+  int ic = 0;
+  if (sc_icounterGet (&ic) == 0 && ic >= 0 && ic < SC_MEMORY_SIZE)
+    *selected = ic;
+
+  g_need_redraw = 1;
+}
+
+static void
+IRC (int signum)
+{
+  if (signum == SIGALRM)
+    {
+      g_alarm = 1;
+    }
+  else if (signum == SIGUSR1)
+    {
+      g_reset = 1;
+    }
+}
+
+static int
+setup_signals (void)
+{
+  struct sigaction sa;
+  memset (&sa, 0, sizeof (sa));
+  sa.sa_handler = IRC;
+  sigemptyset (&sa.sa_mask);
+
+  if (sigaction (SIGALRM, &sa, NULL) != 0)
+    return -1;
+  if (sigaction (SIGUSR1, &sa, NULL) != 0)
+    return -1;
+
   return 0;
 }
+
+/* ---------------- main ---------------- */
 
 int
 main (void)
@@ -462,131 +1153,172 @@ main (void)
 
   setvbuf (stdout, NULL, _IONBF, 0);
 
-  sc_memoryInit ();
-  sc_regInit ();
-  sc_accumulatorInit ();
-  sc_icounterInit ();
-
-  /* демо */
-  sc_memorySet (0, 0x3434);
-  sc_memorySet (1, 0x1000);
-  sc_memorySet (2, 0x1102);
-  sc_memorySet (3, 0x1103);
-  sc_accumulatorSet (0);
-  sc_icounterSet (0x000E);
+  reset_machine ();
+  io_put_line (0, "READY");
 
   int selected = 0;
 
   mt_setcursorvisible (0);
 
   rk_mytermsave ();
-  rk_mytermregime (1, 0, 1, 0, 0); /* noncanon, vtime=0 vmin=1, echo off */
+  rk_mytermregime (1, 0, 1, 0, 0);
+
+  if (setup_signals () != 0)
+    {
+      rk_mytermrestore ();
+      fprintf (stderr, "Ошибка: не удалось установить обработчики сигналов.\n");
+      return 1;
+    }
 
   for (;;)
     {
-      mt_clrscr ();
+      if (g_reset)
+        {
+          reset_machine ();
+          io_put_line (0, "RESET");
+          selected = 0;
+          g_reset = 0;
+          g_need_redraw = 1;
+        }
 
-      draw_memory (selected);
-      draw_accumulator ();
-      draw_flags ();
-      draw_icounter ();
-      draw_command (selected);
-      draw_bigcell (selected);
+      if (g_alarm)
+        {
+          g_alarm = 0;
 
-      draw_format (selected);
-      draw_cache ();
-      draw_inout (selected);
-      draw_keys ();
-      draw_input_prompt ();
+          if (g_run)
+            process_tick (1, &selected);
+          else
+            g_need_redraw = 1;
+        }
+
+      if (g_need_redraw)
+        redraw_now (selected);
+
+      if (g_run)
+        {
+          pause ();
+          continue;
+        }
 
       enum keys key = KEY_UNKNOWN;
       if (rk_readkey (&key) != 0)
         continue;
 
-      /* ESC — выход */
       if (key == KEY_ESC)
         break;
 
-      /* Стрелки */
+      if (key == KEY_ENTER)
+        {
+          int r, c;
+          cell_pos (selected, &r, &c);
+
+          int oldv = 0;
+          sc_memoryGet (selected, &oldv);
+
+          int newv;
+          if (inplace_edit_hex4 (r, c, &newv, oldv) == 0)
+            sc_memorySet (selected, newv);
+
+          g_need_redraw = 1;
+          continue;
+        }
+
+      if (key == KEY_F5)
+        {
+          int r, c;
+          acc_field_pos (&r, &c);
+
+          int oldv = 0;
+          sc_accumulatorGet (&oldv);
+
+          int newv;
+          if (inplace_edit_hex4 (r, c, &newv, oldv) == 0)
+            sc_accumulatorSet (newv);
+
+          g_need_redraw = 1;
+          continue;
+        }
+
+      if (key == KEY_F6)
+        {
+          int r, c;
+          ic_field_pos (&r, &c);
+
+          int oldic = 0;
+          sc_icounterGet (&oldic);
+
+          int newic;
+          if (inplace_edit_dec (r, c, 3, 0, SC_MEMORY_SIZE - 1, &newic, oldic)
+              == 0)
+            {
+              sc_icounterSet (newic);
+              selected = newic;
+            }
+
+          g_need_redraw = 1;
+          continue;
+        }
+
       if (key == KEY_RIGHT)
         {
           selected = (selected + 1) % MEM_CELLS_TOTAL;
+          g_need_redraw = 1;
           continue;
         }
+
       if (key == KEY_LEFT)
         {
           selected = (selected + MEM_CELLS_TOTAL - 1) % MEM_CELLS_TOTAL;
+          g_need_redraw = 1;
           continue;
         }
+
       if (key == KEY_UP)
         {
           if (selected >= MEM_COLS_PER_ROW)
             selected -= MEM_COLS_PER_ROW;
+          g_need_redraw = 1;
           continue;
         }
+
       if (key == KEY_DOWN)
         {
           if (selected + MEM_COLS_PER_ROW < MEM_CELLS_TOTAL)
             selected += MEM_COLS_PER_ROW;
+          g_need_redraw = 1;
           continue;
         }
 
-      /* Буквенные команды: берём символ из rk_last_char */
       if (key == KEY_CHAR)
         {
           int ch = rk_last_char;
 
           if (ch >= 'A' && ch <= 'Z')
-            ch = ch - 'A' + 'a'; /* нормализуем в lower */
+            ch = ch - 'A' + 'a';
 
           if (ch == 'q')
             break;
 
           if (ch == 'i')
             {
-              sc_memoryInit ();
-              sc_accumulatorSet (0);
-              sc_icounterSet (0);
-              continue;
-            }
-
-          if (ch == 'n')
-            {
-              int newv = (selected * 37 + 0x123) & 0x3FFF;
-              sc_memorySet (selected, newv);
+              raise (SIGUSR1);
               continue;
             }
 
           if (ch == 'r')
             {
-              for (int i = 0; i < 20; i++)
-                {
-                  int addr = (i * 7 + 13) % MEM_CELLS_TOTAL;
-                  int val = (addr * 91 + 0x2A) & 0x3FFF;
-                  sc_memorySet (addr, val);
-                }
+              g_run = 1;
+              io_clear ();
+              io_put_line (0, "RUN");
+              start_timer ();
+              g_need_redraw = 1;
               continue;
             }
 
           if (ch == 's')
             {
-              char filename[128];
-
-              /* на время ввода файла: возвращаем канонический режим + echo */
-              rk_mytermregime (0, 0, 0, 1, 1);
-
-              mt_gotoXY (INPUT_TOP, INPUT_LEFT);
-              mt_setfgcolor (COLOR_WHITE);
-              fputs ("Введите имя файла для сохранения: ", stdout);
-              mt_setdefaultcolor ();
-              fflush (stdout);
-
-              read_line (filename, sizeof (filename));
-              if (filename[0] != '\0')
-                sc_memorySave (filename);
-
-              /* обратно в неканонический, без echo */
-              rk_mytermregime (1, 0, 1, 0, 0);
+              /* Один тактовый импульс БЕЗ проверки флага T */
+              process_tick (0, &selected);
               continue;
             }
 
@@ -607,85 +1339,15 @@ main (void)
                 sc_memoryLoad (filename);
 
               rk_mytermregime (1, 0, 1, 0, 0);
+              io_clear ();
+              io_put_line (0, "LOAD FILE");
+              g_need_redraw = 1;
               continue;
             }
         }
-
-      /* ENTER — редактирование выбранной ячейки памяти */
-      if (key == KEY_ENTER)
-        {
-          int new_value;
-
-          /* подсказка внизу */
-          mt_gotoXY (INPUT_TOP, INPUT_LEFT);
-          mt_setfgcolor (COLOR_WHITE);
-          fputs ("Введите значение ячейки (+FFFF/-FFFF/FFFF): ", stdout);
-          mt_setdefaultcolor ();
-          fflush (stdout);
-
-          /* rk_readvalue читает до Enter и возвращает value в формате SC */
-          if (rk_readvalue (&new_value, -1) == 0)
-            {
-              sc_memorySet (selected, new_value);
-            }
-          continue;
-        }
-
-      /* F5 — редактирование аккумулятора */
-      if (key == KEY_F5)
-        {
-          char buf[64];
-          int new_value;
-
-          /* временно включаем обычный ввод, чтобы было видно что печатаешь */
-          rk_mytermregime (0, 0, 0, 1, 1); /* canonical + echo */
-
-          mt_gotoXY (INPUT_TOP, INPUT_LEFT);
-          mt_setfgcolor (COLOR_WHITE);
-          fputs ("Введите аккумулятор (+FFFF/-FFFF/FFFF): ", stdout);
-          mt_setdefaultcolor ();
-          fflush (stdout);
-
-          read_line (buf, sizeof (buf));
-
-          /* обратно в неканонический */
-          rk_mytermregime (1, 0, 1, 0, 0);
-
-          if (parse_sc_value (buf, &new_value) == 0)
-            {
-              sc_accumulatorSet (new_value);
-            }
-          continue;
-        }
-
-      /* F6 — редактирование счётчика команд */
-      if (key == KEY_F6)
-        {
-          int ic;
-
-          mt_gotoXY (INPUT_TOP, INPUT_LEFT);
-          mt_setfgcolor (COLOR_WHITE);
-          fputs ("Введите счётчик команд (0..127): ", stdout);
-          mt_setdefaultcolor ();
-          fflush (stdout);
-
-          /* Для IC удобнее читать обычное число в каноническом режиме */
-          rk_mytermregime (0, 0, 0, 1, 1);
-
-          char buf[32];
-          read_line (buf, sizeof (buf));
-
-          rk_mytermregime (1, 0, 1, 0, 0);
-
-          ic = atoi (buf);
-          if (ic >= 0 && ic < SC_MEMORY_SIZE)
-            {
-              sc_icounterSet (ic);
-            }
-          continue;
-        }
     }
 
+  stop_timer ();
   rk_mytermrestore ();
 
   mt_setdefaultcolor ();
