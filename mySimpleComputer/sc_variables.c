@@ -125,7 +125,7 @@ sc_memoryLoad (char *filename)
   return 0;
 }
 
-/* ---------------- flags register ---------------- */
+
 
 static int
 is_valid_flag_mask (int mask)
@@ -177,7 +177,7 @@ sc_regGet (int reg, int *value)
   return 0;
 }
 
-/* ---------------- accumulator ---------------- */
+
 
 int
 sc_accumulatorInit (void)
@@ -210,7 +210,7 @@ sc_accumulatorGet (int *value)
   return 0;
 }
 
-/* ---------------- instruction counter ---------------- */
+
 
 int
 sc_icounterInit (void)
@@ -243,7 +243,7 @@ sc_icounterGet (int *value)
   return 0;
 }
 
-/* ---------------- simple output ---------------- */
+
 
 static void
 print_binary15 (int value)

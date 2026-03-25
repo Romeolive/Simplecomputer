@@ -40,7 +40,7 @@ rk_mytermregime (int regime, int vtime, int vmin, int echo, int sigint)
   if (tcgetattr (STDIN_FILENO, &t) != 0)
     return -1;
 
-  if (regime) /* noncanonical */
+  if (regime) 
     t.c_lflag &= (tcflag_t)~ICANON;
   else
     t.c_lflag |= ICANON;
@@ -80,7 +80,7 @@ read_byte (unsigned char *ch)
   return -1;
 }
 
-/* read with timeout (ms). -1 blocking, 0 immediate */
+
 static int
 read_byte_timeout (unsigned char *ch, int timeout_ms)
 {
@@ -99,15 +99,11 @@ read_byte_timeout (unsigned char *ch, int timeout_ms)
                    (timeout_ms == 0) ? &(struct timeval){ 0, 0 } : &tv);
 
   if (rc <= 0)
-    return -1; /* timeout or error */
+    return -1; 
   return read_byte (ch);
 }
 
-/* Стрелки обычно: ESC [ A/B/C/D
-   F5/F6 в xterm обычно: ESC [ 1 5 ~, ESC [ 1 7 ~
-   В некоторых терминалах: ESC O P/Q/... — но нам нужны F5/F6, оставим
-   xterm-вариант.
-*/
+
 int
 rk_readkey (enum keys *key)
 {
@@ -126,7 +122,6 @@ rk_readkey (enum keys *key)
       unsigned char seq[8];
       int n = 0;
 
-      /* попробуем добрать последовательность, коротко подождём */
       for (int i = 0; i < 7; i++)
         {
           unsigned char t;
@@ -135,14 +130,14 @@ rk_readkey (enum keys *key)
           seq[n++] = t;
         }
 
-      /* чистый ESC */
+
       if (n == 0)
         {
           *key = KEY_ESC;
           return 0;
         }
 
-      /* стрелки: [A [B [C [D */
+
       if (n == 2 && seq[0] == '[')
         {
           if (seq[1] == 'A')
@@ -167,7 +162,7 @@ rk_readkey (enum keys *key)
             }
         }
 
-      /* F5 / F6: [15~ / [17~ */
+
       if (n == 4 && seq[0] == '[' && seq[3] == '~')
         {
           if (seq[1] == '1' && seq[2] == '5')
@@ -209,7 +204,7 @@ hexval (int c)
   return -1;
 }
 
-/* Формат: [+|-] HEX HEX HEX HEX */
+
 int
 rk_readvalue (int *value, int timeout_ms)
 {
@@ -219,17 +214,17 @@ rk_readvalue (int *value, int timeout_ms)
   char buf[16];
   int pos = 0;
 
-  /* читаем до Enter */
+
   for (;;)
     {
       unsigned char ch;
       if (read_byte_timeout (&ch, timeout_ms) != 0)
-        return -1; /* timeout/err */
+        return -1; 
 
       if (ch == '\r' || ch == '\n')
         break;
 
-      /* backspace */
+
       if (ch == 127 || ch == 8)
         {
           if (pos > 0)
@@ -240,7 +235,7 @@ rk_readvalue (int *value, int timeout_ms)
       if (pos >= (int)sizeof (buf) - 1)
         continue;
 
-      /* допускаем только + - и HEX */
+
       if (ch == '+' || ch == '-')
         {
           if (pos != 0)
@@ -254,12 +249,12 @@ rk_readvalue (int *value, int timeout_ms)
           buf[pos++] = (char)ch;
           continue;
         }
-      /* прочее игнорируем */
+
     }
 
   buf[pos] = '\0';
 
-  /* нормализуем: без знака => '+' */
+
   int sign = 0;
   const char *p = buf;
   if (buf[0] == '+' || buf[0] == '-')
@@ -280,7 +275,7 @@ rk_readvalue (int *value, int timeout_ms)
       mag = (mag << 4) | hv;
     }
 
-  mag &= 0x3FFF; /* 14 бит */
+  mag &= 0x3FFF; 
   *value = (sign ? (1 << 14) : 0) | mag;
   return 0;
 }

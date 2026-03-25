@@ -102,10 +102,10 @@ static volatile sig_atomic_t g_need_redraw = 1;
 static struct itimerval g_timer
     = { .it_interval = { 0, 500000 }, .it_value = { 0, 500000 } };
 
-/* Буфер блока IN-OUT */
+
 static char io_lines[5][32];
 
-/* ---------------- util ---------------- */
+
 
 static int
 term_width_utf8 (const char *s)
@@ -278,7 +278,7 @@ int_to_sc (int value, int *raw)
   return 0;
 }
 
-/* ---------------- io block ---------------- */
+
 
 static void
 io_clear (void)
@@ -296,7 +296,7 @@ io_put_line (int line, const char *text)
   snprintf (io_lines[line], sizeof (io_lines[line]), "%s", text);
 }
 
-/* ---------------- draw blocks ---------------- */
+
 
 static void
 draw_memory (int selected)
@@ -502,7 +502,7 @@ draw_input_prompt (void)
   mt_setdefaultcolor ();
 }
 
-/* ---------------- InPlace editing ---------------- */
+
 
 static void
 cell_pos (int addr, int *row, int *col)
@@ -761,7 +761,7 @@ ic_field_pos (int *row, int *col)
   *col = IC_LEFT + 2 + 10;
 }
 
-/* ---------------- machine / signals ---------------- */
+
 
 static void
 start_timer (void)

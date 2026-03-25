@@ -6,7 +6,7 @@ extern "C"
 {
 #endif
 
-  /* Логические клавиши */
+
   enum keys
   {
     KEY_UNKNOWN = 0,
@@ -22,11 +22,11 @@ extern "C"
     KEY_F5,
     KEY_F6,
 
-    /* Для обычных символов */
+    
     KEY_CHAR
   };
 
-  /* Если key == KEY_CHAR, то сюда кладём сам символ */
+
   extern int rk_last_char;
 
   int rk_mytermsave (void);
@@ -34,7 +34,7 @@ extern "C"
 
   int rk_mytermregime (int regime, int vtime, int vmin, int echo, int sigint);
 
-  /* Считывает клавишу (стрелки, F5/F6, Enter, ESC, обычные символы) */
+  
   int rk_readkey (enum keys *key);
 
   int rk_readvalue (int *value, int timeout_ms);
