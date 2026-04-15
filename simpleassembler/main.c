@@ -207,8 +207,8 @@ assemble_line (char *line, int lineno)
 
   if (command_from_name (cmd_tok, &command) != 0)
     {
-      fprintf (stderr, "Ошибка в строке %d: неизвестная команда '%s'\n", lineno,
-               cmd_tok);
+      fprintf (stderr, "Ошибка в строке %d: неизвестная команда '%s'\n",
+               lineno, cmd_tok);
       return -1;
     }
 

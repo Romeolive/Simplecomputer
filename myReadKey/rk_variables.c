@@ -40,7 +40,7 @@ rk_mytermregime (int regime, int vtime, int vmin, int echo, int sigint)
   if (tcgetattr (STDIN_FILENO, &t) != 0)
     return -1;
 
-  if (regime) 
+  if (regime)
     t.c_lflag &= (tcflag_t)~ICANON;
   else
     t.c_lflag |= ICANON;
@@ -80,7 +80,6 @@ read_byte (unsigned char *ch)
   return -1;
 }
 
-
 static int
 read_byte_timeout (unsigned char *ch, int timeout_ms)
 {
@@ -99,10 +98,9 @@ read_byte_timeout (unsigned char *ch, int timeout_ms)
                    (timeout_ms == 0) ? &(struct timeval){ 0, 0 } : &tv);
 
   if (rc <= 0)
-    return -1; 
+    return -1;
   return read_byte (ch);
 }
-
 
 int
 rk_readkey (enum keys *key)
@@ -130,13 +128,11 @@ rk_readkey (enum keys *key)
           seq[n++] = t;
         }
 
-
       if (n == 0)
         {
           *key = KEY_ESC;
           return 0;
         }
-
 
       if (n == 2 && seq[0] == '[')
         {
@@ -161,7 +157,6 @@ rk_readkey (enum keys *key)
               return 0;
             }
         }
-
 
       if (n == 4 && seq[0] == '[' && seq[3] == '~')
         {
@@ -204,7 +199,6 @@ hexval (int c)
   return -1;
 }
 
-
 int
 rk_readvalue (int *value, int timeout_ms)
 {
@@ -214,16 +208,14 @@ rk_readvalue (int *value, int timeout_ms)
   char buf[16];
   int pos = 0;
 
-
   for (;;)
     {
       unsigned char ch;
       if (read_byte_timeout (&ch, timeout_ms) != 0)
-        return -1; 
+        return -1;
 
       if (ch == '\r' || ch == '\n')
         break;
-
 
       if (ch == 127 || ch == 8)
         {
@@ -234,7 +226,6 @@ rk_readvalue (int *value, int timeout_ms)
 
       if (pos >= (int)sizeof (buf) - 1)
         continue;
-
 
       if (ch == '+' || ch == '-')
         {
@@ -249,11 +240,9 @@ rk_readvalue (int *value, int timeout_ms)
           buf[pos++] = (char)ch;
           continue;
         }
-
     }
 
   buf[pos] = '\0';
-
 
   int sign = 0;
   const char *p = buf;
@@ -275,7 +264,7 @@ rk_readvalue (int *value, int timeout_ms)
       mag = (mag << 4) | hv;
     }
 
-  mag &= 0x3FFF; 
+  mag &= 0x3FFF;
   *value = (sign ? (1 << 14) : 0) | mag;
   return 0;
 }

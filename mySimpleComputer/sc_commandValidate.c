@@ -22,5 +22,4 @@ sc_commandValidate (int command)
     default:
       return -1;
     }
-    
 }

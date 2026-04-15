@@ -3,7 +3,7 @@
 int
 sc_commandDecode (int value, int *sign, int *command, int *operand)
 {
-  
+
   if (sign == NULL || command == NULL || operand == NULL)
     return -1;
 
