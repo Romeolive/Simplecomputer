@@ -1,12 +1,33 @@
 CC = gcc
-CFLAGS = -std=c11 -Wall -Wextra -Wpedantic
-TARGET = main
-SRCS = $(wildcard *.c)
+CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -I../include
 
-all:
-	$(CC) $(CFLAGS) $(SRCS) -o $(TARGET)
+LIBSC_DIR = ../mySimpleComputer
+LIBTERM_DIR = ../myTerm
+
+LIBSC = $(LIBSC_DIR)/libmySimpleComputer.a
+LIBTERM = $(LIBTERM_DIR)/libmyTerm.a
+
+TARGET = sat
+SRCS = main.c
+OBJS = $(SRCS:.c=.o)
+
+all: $(TARGET)
+
+$(TARGET): $(OBJS) $(LIBSC) $(LIBTERM)
+	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LIBSC) $(LIBTERM)
+
+$(LIBSC):
+	$(MAKE) -C $(LIBSC_DIR)
+
+$(LIBTERM):
+	$(MAKE) -C $(LIBTERM_DIR)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGET) *.o
+	$(MAKE) -C $(LIBSC_DIR) clean
+	$(MAKE) -C $(LIBTERM_DIR) clean
 
 .PHONY: all clean

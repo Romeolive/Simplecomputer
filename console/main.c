@@ -900,7 +900,7 @@ CU (void)
 
   switch (command)
     {
-    case CMD_READ:
+    /*case CMD_READ:
       {
         char buf[64];
         int newv;
@@ -933,6 +933,7 @@ CU (void)
         rk_mytermregime (1, 0, 1, 0, 0);
       }
       break;
+      */
 
     case CMD_WRITE:
       {
@@ -979,6 +980,53 @@ CU (void)
           return;
         }
       break;
+      
+         case CMD_READ:
+      {
+        char buf[64];
+        int newv;
+        int was_running = g_run;
+
+        /* на время ввода останавливаем генератор */
+        stop_timer ();
+        g_run = 0;
+
+        rk_mytermregime (0, 0, 0, 1, 1);
+
+        io_clear ();
+        io_put_line (0, "READ");
+        snprintf (io_lines[1], sizeof (io_lines[1]), "addr %02d", operand);
+        snprintf (io_lines[2], sizeof (io_lines[2]), "> ");
+        g_need_redraw = 1;
+        redraw_now (ic);
+
+        mt_gotoXY (INOUT_TOP + 3, INOUT_LEFT + 3);
+        fflush (stdout);
+
+        read_line (buf, sizeof (buf));
+
+        if (parse_sc_value (buf, &newv) == 0)
+          {
+            sc_memorySet (operand, newv);
+            snprintf (io_lines[3], sizeof (io_lines[3]), "[%02d]=%c%04X",
+                      operand, ((newv >> 14) & 1) ? '-' : '+', newv & 0x3FFF);
+          }
+        else
+          {
+            io_put_line (3, "INPUT ERROR");
+          }
+
+        rk_mytermregime (1, 0, 1, 0, 0);
+
+        /* возвращаем режим работы, если READ был во время r */
+        if (was_running)
+          {
+            g_run = 1;
+            start_timer ();
+          }
+      }
+      break;
+
 
     case CMD_ADD:
     case CMD_SUB:
@@ -1312,7 +1360,16 @@ main (void)
 
           if (ch == 'i')
             {
-              raise (SIGUSR1);
+              /*raise (SIGUSR1);
+              continue;*/
+              reset_machine ();
+              io_clear ();
+              io_put_line (0, "RESET");
+              selected = 0;
+              g_reset = 0;
+              g_alarm = 0;
+              g_run = 0;
+              g_need_redraw = 1;
               continue;
             }
 
