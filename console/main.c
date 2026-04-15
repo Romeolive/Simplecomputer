@@ -102,10 +102,7 @@ static volatile sig_atomic_t g_need_redraw = 1;
 static struct itimerval g_timer
     = { .it_interval = { 0, 500000 }, .it_value = { 0, 500000 } };
 
-
 static char io_lines[5][32];
-
-
 
 static int
 term_width_utf8 (const char *s)
@@ -278,8 +275,6 @@ int_to_sc (int value, int *raw)
   return 0;
 }
 
-
-
 static void
 io_clear (void)
 {
@@ -295,8 +290,6 @@ io_put_line (int line, const char *text)
 
   snprintf (io_lines[line], sizeof (io_lines[line]), "%s", text);
 }
-
-
 
 static void
 draw_memory (int selected)
@@ -501,8 +494,6 @@ draw_input_prompt (void)
   fputs ("Arrows/Enter/F5/F6/r/s/i (ESC - exit)", stdout);
   mt_setdefaultcolor ();
 }
-
-
 
 static void
 cell_pos (int addr, int *row, int *col)
@@ -761,8 +752,6 @@ ic_field_pos (int *row, int *col)
   *col = IC_LEFT + 2 + 10;
 }
 
-
-
 static void
 start_timer (void)
 {
@@ -900,39 +889,41 @@ CU (void)
 
   switch (command)
     {
-    case CMD_READ:
-      {
-        char buf[64];
-        int newv;
+      /*case CMD_READ:
+        {
+          char buf[64];
+          int newv;
 
-        rk_mytermregime (0, 0, 0, 1, 1);
+          rk_mytermregime (0, 0, 0, 1, 1);
 
-        io_clear ();
-        io_put_line (0, "READ");
-        snprintf (io_lines[1], sizeof (io_lines[1]), "addr %02d", operand);
-        snprintf (io_lines[2], sizeof (io_lines[2]), "> ");
-        g_need_redraw = 1;
-        redraw_now (ic);
+          io_clear ();
+          io_put_line (0, "READ");
+          snprintf (io_lines[1], sizeof (io_lines[1]), "addr %02d", operand);
+          snprintf (io_lines[2], sizeof (io_lines[2]), "> ");
+          g_need_redraw = 1;
+          redraw_now (ic);
 
-        mt_gotoXY (INOUT_TOP + 3, INOUT_LEFT + 3);
-        fflush (stdout);
+          mt_gotoXY (INOUT_TOP + 3, INOUT_LEFT + 3);
+          fflush (stdout);
 
-        read_line (buf, sizeof (buf));
+          read_line (buf, sizeof (buf));
 
-        if (parse_sc_value (buf, &newv) == 0)
-          {
-            sc_memorySet (operand, newv);
-            snprintf (io_lines[3], sizeof (io_lines[3]), "[%02d]=%c%04X",
-                      operand, ((newv >> 14) & 1) ? '-' : '+', newv & 0x3FFF);
-          }
-        else
-          {
-            io_put_line (3, "INPUT ERROR");
-          }
+          if (parse_sc_value (buf, &newv) == 0)
+            {
+              sc_memorySet (operand, newv);
+              snprintf (io_lines[3], sizeof (io_lines[3]), "[%02d]=%c%04X",
+                        operand, ((newv >> 14) & 1) ? '-' : '+', newv &
+        0x3FFF);
+            }
+          else
+            {
+              io_put_line (3, "INPUT ERROR");
+            }
 
-        rk_mytermregime (1, 0, 1, 0, 0);
-      }
-      break;
+          rk_mytermregime (1, 0, 1, 0, 0);
+        }
+        break;
+        */
 
     case CMD_WRITE:
       {
@@ -978,6 +969,52 @@ CU (void)
           stop_timer ();
           return;
         }
+      break;
+
+    case CMD_READ:
+      {
+        char buf[64];
+        int newv;
+        int was_running = g_run;
+
+        /* на время ввода останавливаем генератор */
+        stop_timer ();
+        g_run = 0;
+
+        rk_mytermregime (0, 0, 0, 1, 1);
+
+        io_clear ();
+        io_put_line (0, "READ");
+        snprintf (io_lines[1], sizeof (io_lines[1]), "addr %02d", operand);
+        snprintf (io_lines[2], sizeof (io_lines[2]), "> ");
+        g_need_redraw = 1;
+        redraw_now (ic);
+
+        mt_gotoXY (INOUT_TOP + 3, INOUT_LEFT + 3);
+        fflush (stdout);
+
+        read_line (buf, sizeof (buf));
+
+        if (parse_sc_value (buf, &newv) == 0)
+          {
+            sc_memorySet (operand, newv);
+            snprintf (io_lines[3], sizeof (io_lines[3]), "[%02d]=%c%04X",
+                      operand, ((newv >> 14) & 1) ? '-' : '+', newv & 0x3FFF);
+          }
+        else
+          {
+            io_put_line (3, "INPUT ERROR");
+          }
+
+        rk_mytermregime (1, 0, 1, 0, 0);
+
+        /* возвращаем режим работы, если READ был во время r */
+        if (was_running)
+          {
+            g_run = 1;
+            start_timer ();
+          }
+      }
       break;
 
     case CMD_ADD:
@@ -1312,7 +1349,16 @@ main (void)
 
           if (ch == 'i')
             {
-              raise (SIGUSR1);
+              /*raise (SIGUSR1);
+              continue;*/
+              reset_machine ();
+              io_clear ();
+              io_put_line (0, "RESET");
+              selected = 0;
+              g_reset = 0;
+              g_alarm = 0;
+              g_run = 0;
+              g_need_redraw = 1;
               continue;
             }
 

@@ -1,0 +1,27 @@
+00 READ 20      ; ввод n
+01 LOAD 23      ; result = 1
+02 STORE 21
+03 LOAD 20
+04 JZ 18        ; если n == 0 -> finish
+05 SUB 23
+06 JZ 18        ; если n == 1 -> finish
+
+07 LOAD 21      ; loop:
+08 MUL 20
+09 STORE 21
+10 LOAD 20
+11 SUB 23
+12 STORE 20
+13 LOAD 20
+14 SUB 23
+15 JZ 18        ; если n == 1 -> finish
+16 JUMP 07
+17 = +0000
+
+18 WRITE 21     ; вывод result
+19 HALT 00
+
+20 = +0000      ; n
+21 = +0000      ; result
+22 = +0000
+23 = +0001      ; const 1

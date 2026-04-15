@@ -6,7 +6,6 @@ extern "C"
 {
 #endif
 
-
   enum keys
   {
     KEY_UNKNOWN = 0,
@@ -22,10 +21,8 @@ extern "C"
     KEY_F5,
     KEY_F6,
 
-    
     KEY_CHAR
   };
-
 
   extern int rk_last_char;
 
@@ -34,7 +31,6 @@ extern "C"
 
   int rk_mytermregime (int regime, int vtime, int vmin, int echo, int sigint);
 
-  
   int rk_readkey (enum keys *key);
 
   int rk_readvalue (int *value, int timeout_ms);
